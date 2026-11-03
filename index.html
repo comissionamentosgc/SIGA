@@ -462,6 +462,7 @@ html{-webkit-text-size-adjust:100%}
 #sheetMax[aria-pressed="true"]{background:var(--ink)}#sheetMax[aria-pressed="true"] svg{stroke:var(--surface)}
 @media (max-width:759px){#sheetMax{display:none}}
 .olds input[type=checkbox]{width:20px;height:20px;accent-color:var(--primary);cursor:pointer}
+.role.r-gestor{color:var(--primary);border-color:var(--primary);background:color-mix(in srgb,var(--ok) 12%,var(--surface))}
 
 </style>
 </head><body>
@@ -914,6 +915,7 @@ function renderAcesso(m,ac){
         <dl class="dl"><dt>Código</dt><dd class="mono">${esc(ac.codigo||'—')}</dd>
         <dt>Subestação</dt><dd>${esc(se?`${se.nome}${se.sigla?' ('+se.sigla+')':''}`:'—')}${se&&se.regional?` · regional ${esc(se.regional)}`:''}</dd>
         <dt>Acessante</dt><dd>${esc(ag?ag.nome:'—')}${ag&&ag.tipo?` · ${esc(AGT[ag.tipo]||ag.tipo)}`:''}</dd>
+        <dt>Responsável</dt><dd>${esc(us.filter(u=>u.tipo==='gestor').map(u=>u.nome).join(', ')||'—')}</dd>
         <dt>Situação</dt><dd>${esc(ACST[ac.status||'andamento'])}</dd>
         <dt>Início</dt><dd>${fmtISO(ac.inicio)}</dd>
         <dt>Energização prevista</dt><dd>${fmtISO(ac.previsao)}</dd>
@@ -971,6 +973,7 @@ function openUsers(){pushSheet({title:'Usuários',live:true,render:()=>{
         ${u.tipo==='externo'?`<label class="fld">Agente<select class="sel" data-uag="${esc(u.id)}"><option value="">— escolha —</option>${ags.map(a=>`<option value="${esc(a.id)}"${u.agente===a.id?' selected':''}>${esc(a.sigla||a.nome)}</option>`).join('')}</select></label>`
           :`<label class="fld">Área<input class="search" list="dlAreas" data-uarea="${esc(u.id)}" value="${esc(u.area||'')}" placeholder="ex.: Proteção"></label>`}</div>
         ${u.tipo!=='externo'?`<label class="fld">Função<input class="search" data-ufun="${esc(u.id)}" value="${esc(u.funcao||'')}" placeholder="ex.: Eng. de proteção"></label>`:''}`:''}
+      ${adm&&u.tipo==='gestor'?`<div class="fld">Responsável pelos acessos${S.acessos.length?`<div class="chkl-g">${S.acessos.map(a=>`<label class="chk"><input type="checkbox" data-part="${esc(u.id)}" data-ac="${esc(a.id)}"${participa(a,u.id)?' checked':''}> <span>${esc(acNome(a))}</span></label>`).join('')}</div>`:'<span class="hint">Nenhum projeto de acesso cadastrado.</span>'}</div>`:''}
       ${meus(u)?`<div class="grid2"><label class="fld">Celular ou e-mail<input class="search" data-ucont="${esc(u.id)}" value="${esc(c.contato||'')}" placeholder="celular ou e-mail" aria-label="Contato de ${esc(u.nome)}"></label>
         <div class="fld">Código de acesso<span class="mono" style="font-size:16px;color:var(--ink)">${esc(c.codigo||'—')}</span></div></div>
       <div class="actions">${envioHTML(u,c)}<button class="btn sm" data-act="u-copy" data-c="${esc(c.codigo||'')}">Copiar código</button>${pode?`<button class="btn sm" data-act="u-cod" data-id="${esc(u.id)}">Gerar novo código</button>`:''}${adm&&u.tipo!=='admin'?`<button class="btn sm danger" data-act="u-del" data-id="${esc(u.id)}">Remover</button>`:''}</div>`:''}</div>`};
@@ -1024,9 +1027,10 @@ function acForm(a){a=a||{};
 function acPart(id){pushSheet({title:'Participantes',live:true,render:()=>{
   const a=acById(id);if(!a)return '<p class="hint">Acesso não encontrado.</p>';
   const p=a.part||{};
-  const linha=u=>`<label class="chk" style="padding:7px 0;border-bottom:1px solid var(--line)"><input type="checkbox" data-part="${esc(u.id)}" data-ac="${esc(a.id)}"${p[u.id]?' checked':''}><span style="min-width:0"><b>${esc(u.nome)}</b> ${roleChip(u.tipo)}${u.tipo==='externo'?` <span class="muted">· ${esc(agById(u.agente)?.sigla||agById(u.agente)?.nome||'sem agente')}</span>${u.agente&&u.agente!==a.agente?' <span class="chip c-media">outro agente</span>':''}`:''}${p[u.id]?`<span class="crumb" style="display:block">indicado em ${fmtD(p[u.id].em)} por ${esc(nameOf(p[u.id].por))}</span>`:''}</span></label>`;
-  const int=S.users.filter(u=>u.tipo==='interno'),ext=S.users.filter(u=>u.tipo==='externo').sort((x,y)=>(y.agente===a.agente)-(x.agente===a.agente));
+  const linha=u=>`<label class="chk" style="padding:7px 0;border-bottom:1px solid var(--line)"><input type="checkbox" data-part="${esc(u.id)}" data-ac="${esc(a.id)}"${p[u.id]?' checked':''}${u.tipo==='gestor'&&!R.owner()?' disabled':''}><span style="min-width:0"><b>${esc(u.nome)}</b> ${roleChip(u.tipo)}${u.tipo==='externo'?` <span class="muted">· ${esc(agById(u.agente)?.sigla||agById(u.agente)?.nome||'sem agente')}</span>${u.agente&&u.agente!==a.agente?' <span class="chip c-media">outro agente</span>':''}`:''}${p[u.id]?`<span class="crumb" style="display:block">indicado em ${fmtD(p[u.id].em)} por ${esc(nameOf(p[u.id].por))}</span>`:''}</span></label>`;
+  const ges=S.users.filter(u=>u.tipo==='gestor'),int=S.users.filter(u=>u.tipo==='interno'),ext=S.users.filter(u=>u.tipo==='externo').sort((x,y)=>(y.agente===a.agente)-(x.agente===a.agente));
   return `<div class="det-h"><span class="crumb">${esc(acNome(a))}</span><p class="hint" style="margin:0">Marque quem participa deste acesso. Quem não estiver marcado não vê nada dele (o administrador vê tudo).</p></div>
+    <div class="box okb"><h4>Responsável de projeto</h4><p class="hint" style="margin:0">Marque quem é o responsável por este acesso. Ele passa a ver o acesso e, nele, inclui usuários, indica participantes e o aprovador da PEX e desbloqueia a tramitação.${R.owner()?'':' Só o administrador muda o responsável.'}</p>${ges.length?`<div class="req-sel">${ges.map(linha).join('')}</div>`:'<p class="hint">Nenhum usuário com o perfil "Responsável de projeto". Em Usuários, mude o perfil da pessoa.</p>'}</div>
     <div class="box"><h4>Neoenergia (internos)</h4>${int.length?`<div class="req-sel">${int.map(linha).join('')}</div>`:'<p class="hint">Nenhum usuário interno cadastrado.</p>'}</div>
     <div class="box"><h4>Acessante (externos)</h4>${ext.length?`<div class="req-sel">${ext.map(linha).join('')}</div>`:'<p class="hint">Nenhum usuário externo cadastrado.</p>'}</div>
     <div class="actions"><button class="btn" data-act="adm-users">Cadastrar usuário</button></div>`}})}
@@ -1461,7 +1465,7 @@ function siOpen(id){pushSheet({title:()=>(S.sis.find(x=>x.id===id)||{}).num||'SI
     <div class="box"><h4>Histórico</h4>${histHTML(x.hist,e=>SIST[e.st]||e.st)}</div>
     ${(cad||meu)&&x.status==='solicitada'?`<div class="dangerzone"><button class="btn sm danger" data-act="si-canc" data-id="${esc(x.id)}">Cancelar solicitação</button></div>`:''}`}})}
 async function siSet(id,ch,h){const x=(S.sis||[]).find(s=>s.id===id);if(!x)return;const {id:_i,...d}=x;await S.db.doc('si/'+id).set({...d,...ch,hist:[...(x.hist||[]),{em:Date.now(),por:S.me.id,...h}]})}
-function siPapeis(){pushSheet({title:'Quem cadastra SI no SGI',live:true,render:()=>`<p class="hint" style="margin:0">Marcados (e o administrador) cadastram a SI no SGI e atualizam a situação.</p><div class="req-sel">${S.users.filter(u=>u.tipo==='interno').map(u=>`<label class="chk"><input type="checkbox" data-sicad="${esc(u.id)}"${u.siCad?' checked':''}> <span>${esc(u.nome)}</span></label>`).join('')||'<p class="hint">Nenhum usuário interno.</p>'}</div>`})}
+function siPapeis(){pushSheet({title:'Quem cadastra SI no SGI',live:true,render:()=>`<p class="hint" style="margin:0">Marcados (e o administrador) cadastram a SI no SGI e atualizam a situação.</p><div class="req-sel">${S.users.filter(u=>['interno','gestor'].includes(u.tipo)).map(u=>`<label class="chk"><input type="checkbox" data-sicad="${esc(u.id)}"${u.siCad?' checked':''}> <span>${esc(u.nome)}</span></label>`).join('')||'<p class="hint">Nenhum usuário interno.</p>'}</div>`})}
 Object.assign(ACT,{
   'si-st':b=>{S.fsi.st=b.dataset.v;renderView()},'si-nova':()=>siNova(),'si-open':b=>siOpen(b.dataset.id),'si-papeis':()=>siPapeis(),
   'si-canc':b=>arm(b,'Confirmar cancelamento',()=>dbDo(()=>siSet(b.dataset.id,{status:'cancelada'},{st:'cancelada',obs:'Cancelada pelo solicitante'}),'SI cancelada')),

@@ -463,6 +463,7 @@ html{-webkit-text-size-adjust:100%}
 @media (max-width:759px){#sheetMax{display:none}}
 .olds input[type=checkbox]{width:20px;height:20px;accent-color:var(--primary);cursor:pointer}
 .role.r-gestor{color:var(--primary);border-color:var(--primary);background:color-mix(in srgb,var(--ok) 12%,var(--surface))}
+.req-sel input[type=checkbox],.chkl-g input[type=checkbox],.chk input[type=checkbox]{accent-color:var(--primary)}
 
 </style>
 </head><body>
@@ -610,6 +611,15 @@ const tk=lk=>String(lk).replace('|','~');
 const tagOf=(ac,lk)=>(ac&&ac.tags&&ac.tags[tk(lk)])||'';
 
 /* ================= catálogo do SIGA ================= */
+/* permissões do responsável de projeto (o administrador marca no cadastro do usuário) */
+const PERMS=[['participantes','Indicar participantes nos acessos em que é responsável',true],['usuarios','Incluir usuários internos e externos e enviar o código',true],
+  ['tramitacao','Indicar o aprovador, decidir a PEX e desbloquear a tramitação',true],['criar_acessos','Criar projetos de acesso',false],
+  ['editar_acessos','Editar os dados dos acessos em que é responsável (código, nome, SE, agente, datas, situação, palavras-chave)',false],
+  ['excluir','Excluir registros (documentos, PEX, pendências, FTs, e-mails, acessos)',false],['cadastros','Cadastrar e editar subestações e agentes acessantes',false],
+  ['usuarios_todos','Gerenciar todos os usuários internos e externos (códigos, perfil, contato, remover)',false],
+  ['config','Configurações gerais (prazos, tramitação, semáforo, supervisão, abas por perfil, chave do Gmail, armazenamento)',false],
+  ['todos','Ver e trabalhar em todos os acessos, inclusive e-mails sem acesso',false]];
+const permDe=(u,p)=>{const v=u&&u.perm&&u.perm[p];if(v!=null)return !!v;const d=PERMS.find(x=>x[0]===p);return !!(d&&d[2])};
 const ROLES = {admin:'Administrador',gestor:'Responsável de projeto',interno:'Interno',externo:'Externo'};
 const AREAS = ['Proteção','Automação / SPCS','Operação (COT)','Manutenção','Engenharia / Projetos','Planejamento','Gestão de acesso','Meio ambiente','Regulatório / Comercial','Segurança do trabalho'];
 const VIEWS = ['acessos','reunioes','emails','pendencias','asbuilt','projetos','pex','si','spcs','superv','semaforo','painel'];
@@ -659,8 +669,11 @@ const R={
   role:()=>S.me?(S.me.isOwner?'admin':(S.me.tipo||null)):null,
   canAct:()=>!!S.db&&!!R.role(),
   interno:()=>['admin','gestor','interno'].includes(R.role()),
-  gestorDe:ac=>R.owner()||(R.role()==='gestor'&&!!ac&&participa(ac,S.me.id)),
+  respDe:ac=>R.owner()||(R.role()==='gestor'&&!!ac&&(participa(ac,S.me.id)||permDe(R.myUser(),'todos'))),
+  gestorDe:ac=>R.owner()||(R.respDe(ac)&&R.pode('tramitacao')),
   gestor:()=>R.owner()||R.role()==='gestor',
+  pode:p=>R.owner()||(R.role()==='gestor'&&permDe(R.myUser(),p)),
+  todos:()=>R.pode('todos'),
   siCad:()=>R.owner()||!!(R.myUser()||{}).siCad,
 };
 function nameOf(id){if(!id)return '—';if(id==='gmail')return 'Script do Gmail';const u=S.users.find(x=>x.id===id);if(u)return u.nome;return S.me&&id===S.me.id?'Você':'Usuário'}
@@ -742,10 +755,10 @@ function renderNav(){
 function renderHeader(){
   const sel=$('#acSel');
   sel.innerHTML=`<option value="">Todos os acessos</option>`+S.acessos.map(a=>`<option value="${esc(a.id)}">${esc(acNome(a))}</option>`).join('');
-  const um=!R.owner()&&S.acessos.length===1;sel.value=acById(S.acId)?S.acId:(um?S.acessos[0].id:'');sel.hidden=!S.me||!S.acessos.length||um;
+  const um=!R.todos()&&S.acessos.length===1;sel.value=acById(S.acId)?S.acId:(um?S.acessos[0].id:'');sel.hidden=!S.me||!S.acessos.length||um;
   const r=R.role(),rc=$('#roleChip');document.body.classList.toggle('r-ext',r==='externo');rc.hidden=!r;if(r){rc.className='role r-'+r;rc.innerHTML=r==='admin'?'Admin<span class="full">istrador</span>':ROLES[r]}
   const ab=$('#adminBtn');ab.hidden=!R.gestor();ab.querySelector('.dot')?.remove();
-  const nc=R.owner()?S.emails.filter(e=>!e.ac).length:0;if(nc)ab.insertAdjacentHTML('beforeend',`<span class="dot">${nc}</span>`);
+  const nc=R.todos()?S.emails.filter(e=>!e.ac).length:0;if(nc)ab.insertAdjacentHTML('beforeend',`<span class="dot">${nc}</span>`);
 }
 function accessBanner(){
   if(S.needConfig)return `<div class="banner"><h3>Configuração pendente</h3><span>Preencha o arquivo <b class="mono">config.js</b> com o endereço e a chave do Supabase e o link do script do Drive (veja o guia de instalação).</span></div>`;
@@ -785,7 +798,7 @@ function renderView(){
 /* tela que precisa de um acesso escolhido */
 function acGate(m,what){
   if(!S.acessos.length){
-    m.innerHTML=`<div class="view">${accessBanner()}<section class="panel"><div class="panel-b empty-st"><h2>${R.owner()?'Nenhum projeto de acesso cadastrado':'Você ainda não participa de nenhum projeto de acesso'}</h2><p class="muted" style="margin:0">${R.owner()?'Cadastre a subestação, o agente acessante e o projeto de acesso. Depois indique quem participa.':'O administrador precisa indicar você como participante de um projeto de acesso.'}</p>${R.owner()?`<button class="btn primary" data-act="ac-new">Cadastrar projeto de acesso</button>`:''}</div></section></div>`;return null}
+    m.innerHTML=`<div class="view">${accessBanner()}<section class="panel"><div class="panel-b empty-st"><h2>${R.todos()?'Nenhum projeto de acesso cadastrado':'Você ainda não participa de nenhum projeto de acesso'}</h2><p class="muted" style="margin:0">${R.pode('criar_acessos')?'Cadastre a subestação, o agente acessante e o projeto de acesso. Depois indique quem participa.':'O administrador precisa indicar você como participante de um projeto de acesso.'}</p>${R.pode('criar_acessos')?`<button class="btn primary" data-act="ac-new">Cadastrar projeto de acesso</button>`:''}</div></section></div>`;return null}
   const ac=effAC();
   if(!ac){m.innerHTML=`<div class="view">${accessBanner()}<div><span class="eyebrow">Escolha o projeto de acesso para ver ${esc(what)}</span></div><div class="secards">${S.acessos.map(acCard).join('')}</div></div>`;return null}
   return ac;
@@ -870,7 +883,7 @@ let _onData=0;
 function onData(){if(_onData)return;_onData=requestAnimationFrame(()=>{_onData=0;renderHeader();renderView();refreshLiveSheet()})}
 function sub(c,key,sort){S.db.collection(c).onSnapshot(snap=>{let a=snap.docs.map(d=>({id:d.id,...d.data()}));if(sort)a.sort(sort);S[key]=a;S.loaded[key]=true;onData()})}
 const usuarioById=id=>S.users.find(u=>u.id===id)||null;
-const partIds=ac=>Object.keys((ac&&ac.part)||{}).filter(id=>usuarioById(id)||R.owner());
+const partIds=ac=>Object.keys((ac&&ac.part)||{}).filter(id=>usuarioById(id)||R.todos());
 const acsDoUsuario=uid=>S.acessos.filter(a=>participa(a,uid));
 const cod6=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let c;do{c='';for(let i=0;i<6;i++)c+=a[Math.floor(Math.random()*a.length)]}while(Object.values(S.contatos).some(x=>String(x.codigo||'').toUpperCase()===c));return c};
 function normC(c){c=String(c||'').trim().toLowerCase();if(c.includes('@'))return c;const d=c.replace(/\D/g,'');return d.slice(-9)}
@@ -886,7 +899,7 @@ function acCard(a){
 
 /* ---- tela inicial: projetos de acesso ---- */
 RENDER.acessos=m=>{
-  const ac=acById(S.acId)||(!R.owner()&&S.acessos.length===1?S.acessos[0]:null);
+  const ac=acById(S.acId)||(!R.todos()&&!R.pode('criar_acessos')&&S.acessos.length===1?S.acessos[0]:null);
   if(ac)return renderAcesso(m,ac);
   if(!S.acessos.length){acGate(m,'');return}
   const q=abNorm(S.fa?.q||'');
@@ -894,9 +907,9 @@ RENDER.acessos=m=>{
   const porSE={};l.forEach(a=>{const k=a.se||'';(porSE[k]=porSE[k]||[]).push(a)});
   const ks=Object.keys(porSE).sort((x,y)=>String(seById(x)?.nome||'~').localeCompare(String(seById(y)?.nome||'~'),'pt-BR'));
   m.innerHTML=`<div class="view">${accessBanner()}
-    <div class="uhead"><div><span class="eyebrow">${R.owner()?'Todos os projetos de acesso':'Projetos de acesso em que você participa'}</span><h1>Acessos</h1></div>
+    <div class="uhead"><div><span class="eyebrow">${R.todos()?'Todos os projetos de acesso':'Projetos de acesso em que você participa'}</span><h1>Acessos</h1></div>
       <div class="stats"><div class="stat"><b>${S.acessos.length}</b><span>acessos</span></div><div class="stat"><b>${new Set(S.acessos.map(a=>a.se).filter(Boolean)).size}</b><span>subestações</span></div><div class="stat"><b>${new Set(S.acessos.map(a=>a.agente).filter(Boolean)).size}</b><span>acessantes</span></div></div></div>
-    <div class="filters"><input class="search" id="faQ" type="search" placeholder="Buscar por código, nome, subestação ou acessante" value="${esc(S.fa?.q||'')}" aria-label="Buscar acesso">${R.owner()?`<button class="btn primary" data-act="ac-new">Novo projeto de acesso</button>`:''}</div>
+    <div class="filters"><input class="search" id="faQ" type="search" placeholder="Buscar por código, nome, subestação ou acessante" value="${esc(S.fa?.q||'')}" aria-label="Buscar acesso">${R.pode('criar_acessos')?`<button class="btn primary" data-act="ac-new">Novo projeto de acesso</button>`:''}</div>
     ${ks.map(k=>{const se=seById(k);return `<section class="view" style="gap:8px"><span class="eyebrow">${esc(se?`${se.nome}${se.sigla?' · '+se.sigla:''}`:'Subestação não informada')}</span><div class="secards">${porSE[k].map(acCard).join('')}</div></section>`}).join('')||`<p class="muted">Nenhum acesso encontrado para “${esc(S.fa.q)}”.</p>`}
   </div>`;
 };
@@ -908,10 +921,10 @@ function renderAcesso(m,ac){
   const int=us.filter(u=>u.tipo!=='externo'),ext=us.filter(u=>u.tipo==='externo');
   const pl=l=>l.length?`<div class="plan-l">${l.map(u=>`<div class="plan-r"><span><b>${esc(u.nome)}</b>${u.funcao?` <span class="muted">· ${esc(u.funcao)}</span>`:''}${u.tipo==='externo'&&u.agente&&u.agente!==ac.agente?` <span class="chip c-media">outro agente</span>`:''}</span>${roleChip(u.tipo)}</div>`).join('')}</div>`:'<p class="hint">Ninguém indicado.</p>';
   m.innerHTML=`<div class="view">${accessBanner()}
-    ${S.acessos.length>1||R.owner()?`<div><button class="btn sm" data-act="ac-todos">← Todos os acessos</button></div>`:''}
+    ${S.acessos.length>1||R.todos()||R.pode('criar_acessos')?`<div><button class="btn sm" data-act="ac-todos">← Todos os acessos</button></div>`:''}
     ${acHead(ac,null,[{v:ids.length,l:'participantes'}])}
     <div class="dgrid">
-      <section class="panel"><div class="panel-h"><h2>Dados do acesso</h2>${R.owner()?`<button class="btn sm" data-act="ac-edit" data-id="${esc(ac.id)}">Editar</button>`:''}</div><div class="panel-b">
+      <section class="panel"><div class="panel-h"><h2>Dados do acesso</h2>${R.pode('editar_acessos')&&(R.owner()||participa(ac,S.me.id))?`<button class="btn sm" data-act="ac-edit" data-id="${esc(ac.id)}">Editar</button>`:''}</div><div class="panel-b">
         <dl class="dl"><dt>Código</dt><dd class="mono">${esc(ac.codigo||'—')}</dd>
         <dt>Subestação</dt><dd>${esc(se?`${se.nome}${se.sigla?' ('+se.sigla+')':''}`:'—')}${se&&se.regional?` · regional ${esc(se.regional)}`:''}</dd>
         <dt>Acessante</dt><dd>${esc(ag?ag.nome:'—')}${ag&&ag.tipo?` · ${esc(AGT[ag.tipo]||ag.tipo)}`:''}</dd>
@@ -922,7 +935,7 @@ function renderAcesso(m,ac){
         ${ac.descricao?`<dt>Descrição</dt><dd class="desc">${esc(ac.descricao)}</dd>`:''}
         ${R.interno()&&(ac.chaves||[]).length?`<dt>Palavras-chave dos e-mails</dt><dd>${(ac.chaves||[]).map(k=>`<span class="chip tipo">${esc(k)}</span>`).join(' ')}</dd>`:''}</dl>
       </div></section>
-      <section class="panel"><div class="panel-h"><h2>Participantes</h2>${R.gestorDe(ac)?`<button class="btn sm" data-act="ac-part" data-id="${esc(ac.id)}">Indicar participantes</button>`:''}</div><div class="panel-b" style="display:flex;flex-direction:column;gap:12px">
+      <section class="panel"><div class="panel-h"><h2>Participantes</h2>${R.owner()||(R.respDe(ac)&&R.pode('participantes'))?`<button class="btn sm" data-act="ac-part" data-id="${esc(ac.id)}">Indicar participantes</button>`:''}</div><div class="panel-b" style="display:flex;flex-direction:column;gap:12px">
         <div><span class="eyebrow">Neoenergia</span>${pl(int)}</div><div><span class="eyebrow">Acessante</span>${pl(ext)}</div>
         <p class="hint">Só quem está nesta lista vê este acesso, e isso vale também no banco de dados.</p>
       </div></section>
@@ -943,7 +956,11 @@ function modulosAc(ac){
 /* ================= administração ================= */
 function openAdmin(){pushSheet({title:R.owner()?'Administração':'Cadastros',live:true,wide:false,render:()=>{
   if(!R.owner()){const it=(act,t,d)=>`<button class="pcard nt" data-act="${act}"><span style="min-width:0"><span class="pt">${t}</span><span class="crumb">${d}</span></span><span aria-hidden="true">›</span></button>`;
-    return `<p class="hint" style="margin:0">Como responsável de projeto, você inclui usuários, indica os participantes e o aprovador da PEX e desbloqueia a tramitação nos acessos em que participa.</p><div class="pcards">${it('adm-users','Usuários','Incluir pessoas e enviar o código de acesso')}${it('adm-acessos','Participantes dos acessos','Quem vê cada projeto de acesso')}</div>`}
+    const P=R.pode;return `<p class="hint" style="margin:0">O que aparece aqui depende das permissões que o administrador marcou para você.</p><div class="pcards">
+      ${P('usuarios')||P('usuarios_todos')?it('adm-users','Usuários',P('usuarios_todos')?'Internos e externos, código de acesso e envio':'Incluir pessoas e enviar o código de acesso'):''}
+      ${P('participantes')||P('editar_acessos')||P('criar_acessos')?it('adm-acessos',P('editar_acessos')||P('criar_acessos')?'Projetos de acesso':'Participantes dos acessos',P('criar_acessos')?'Criar, editar e indicar participantes':'Quem vê cada projeto de acesso'):''}
+      ${P('cadastros')?it('adm-agentes','Agentes acessantes','Empresas que acessam as subestações')+it('adm-ses','Subestações','Nome, sigla e regional'):''}
+      ${P('config')?it('adm-abas','Abas por perfil','Quais abas cada perfil vê'):''}</div>${P('config')?`<div class="box"><h4>Armazenamento</h4><div id="usoBox"><button class="btn sm" data-act="adm-uso">Ver uso do banco e do Drive</button></div></div>`:''}`}
   const nc=S.users.length,na=S.agentes.length,ns=S.ses.length,nx=S.acessos.length;
   const it=(act,t,d,n)=>`<button class="pcard nt" data-act="${act}"><span style="min-width:0"><span class="pt">${t}</span><span class="crumb">${d}</span></span><span class="chip tipo">${n}</span></button>`;
   return `<div class="pcards">
@@ -955,6 +972,11 @@ function openAdmin(){pushSheet({title:R.owner()?'Administração':'Cadastros',li
   </div>
   <div class="box"><h4>Armazenamento</h4><div id="usoBox"><button class="btn sm" data-act="adm-uso">Ver uso do banco e do Drive</button></div></div>`}})}
 
+/* ---- permissões do responsável de projeto (só o administrador marca) ---- */
+function permsHTML(u){const tudo=PERMS.every(([p])=>permDe(u,p));
+  return `<div class="req-sel" style="border:1px solid var(--line);border-radius:9px;padding:4px 10px">${PERMS.map(([p,t])=>`<label class="chk"><input type="checkbox" data-perm="${esc(u.id)}|${p}"${permDe(u,p)?' checked':''}> <span>${esc(t)}</span></label>`).join('')}
+    <label class="chk" style="border-bottom:0"><input type="checkbox" data-perm="${esc(u.id)}|*"${tudo?' checked':''}> <span><b>Todas: mesmas permissões do administrador</b> <span class="muted">(menos criar administradores e responsáveis e mudar permissões)</span></span></label></div>`}
+
 /* ---- abas por perfil (administrador): rascunho na tela, grava ao salvar ---- */
 function admAbas(){S.abDraft=Object.fromEntries(PERFIS_ABA.map(([p])=>[p,abasPerfil(p)]));pushSheet({title:'Abas por perfil',render:abasHTML})}
 function abasHTML(){const D=S.abDraft;
@@ -965,25 +987,26 @@ function abasHTML(){const D=S.abDraft;
 
 /* ---- usuários ---- */
 function openUsers(){pushSheet({title:'Usuários',live:true,render:()=>{
-  const ags=S.agentes,adm=R.owner(),meus=u=>adm||u.criadoPor===S.me.id;
-  const perfis=adm?[['interno','Interno (Neoenergia)'],['gestor','Responsável de projeto (Neoenergia)'],['externo','Externo (acessante)']]:[['interno','Interno (Neoenergia)'],['externo','Externo (acessante)']];
-  const linha=u=>{const c=S.contatos[u.id]||{},eu=S.me&&u.id===S.me.id,acs=acsDoUsuario(u.id),pode=meus(u)&&u.tipo!=='admin'&&(adm||u.tipo!=='gestor');
+  const ags=S.agentes,own=R.owner(),adm=R.pode('usuarios_todos'),meus=u=>own||(adm&&!['admin','gestor'].includes(u.tipo))||u.criadoPor===S.me.id||u.id===S.me.id;
+  const perfis=own?[['interno','Interno (Neoenergia)'],['gestor','Responsável de projeto (Neoenergia)'],['externo','Externo (acessante)']]:[['interno','Interno (Neoenergia)'],['externo','Externo (acessante)']];
+  const linha=u=>{const c=S.contatos[u.id]||{},eu=S.me&&u.id===S.me.id,acs=acsDoUsuario(u.id),pode=meus(u)&&u.tipo!=='admin'&&(own||u.tipo!=='gestor');
     return `<div class="box"><div class="sec-row"><span style="min-width:0"><b>${esc(u.nome)}</b>${eu?' <span class="muted">(você)</span>':''}<span class="crumb" style="display:block">${u.tipo==='admin'?'Vê todos os acessos':acs.length?acs.map(a=>esc(acCurto(a))).join(' · '):'Sem acesso indicado'}${u.area?' · '+esc(u.area):''}</span></span>${roleChip(u.tipo)}</div>
       ${pode?`<div class="grid2"><label class="fld">Perfil<select class="sel" data-utipo="${esc(u.id)}">${perfis.map(([k,t])=>`<option value="${k}"${u.tipo===k?' selected':''}>${t}</option>`).join('')}</select></label>
         ${u.tipo==='externo'?`<label class="fld">Agente<select class="sel" data-uag="${esc(u.id)}"><option value="">— escolha —</option>${ags.map(a=>`<option value="${esc(a.id)}"${u.agente===a.id?' selected':''}>${esc(a.sigla||a.nome)}</option>`).join('')}</select></label>`
           :`<label class="fld">Área<input class="search" list="dlAreas" data-uarea="${esc(u.id)}" value="${esc(u.area||'')}" placeholder="ex.: Proteção"></label>`}</div>
         ${u.tipo!=='externo'?`<label class="fld">Função<input class="search" data-ufun="${esc(u.id)}" value="${esc(u.funcao||'')}" placeholder="ex.: Eng. de proteção"></label>`:''}`:''}
-      ${adm&&u.tipo==='gestor'?`<div class="fld">Responsável pelos acessos${S.acessos.length?`<div class="chkl-g">${S.acessos.map(a=>`<label class="chk"><input type="checkbox" data-part="${esc(u.id)}" data-ac="${esc(a.id)}"${participa(a,u.id)?' checked':''}> <span>${esc(acNome(a))}</span></label>`).join('')}</div>`:'<span class="hint">Nenhum projeto de acesso cadastrado.</span>'}</div>`:''}
+      ${own&&u.tipo==='gestor'?`<div class="fld">Permissões${permsHTML(u)}</div>`:''}
+      ${own&&u.tipo==='gestor'?`<div class="fld">Responsável pelos acessos${S.acessos.length?`<div class="chkl-g">${S.acessos.map(a=>`<label class="chk"><input type="checkbox" data-part="${esc(u.id)}" data-ac="${esc(a.id)}"${participa(a,u.id)?' checked':''}> <span>${esc(acNome(a))}</span></label>`).join('')}</div>`:'<span class="hint">Nenhum projeto de acesso cadastrado.</span>'}</div>`:''}
       ${meus(u)?`<div class="grid2"><label class="fld">Celular ou e-mail<input class="search" data-ucont="${esc(u.id)}" value="${esc(c.contato||'')}" placeholder="celular ou e-mail" aria-label="Contato de ${esc(u.nome)}"></label>
         <div class="fld">Código de acesso<span class="mono" style="font-size:16px;color:var(--ink)">${esc(c.codigo||'—')}</span></div></div>
-      <div class="actions">${envioHTML(u,c)}<button class="btn sm" data-act="u-copy" data-c="${esc(c.codigo||'')}">Copiar código</button>${pode?`<button class="btn sm" data-act="u-cod" data-id="${esc(u.id)}">Gerar novo código</button>`:''}${adm&&u.tipo!=='admin'?`<button class="btn sm danger" data-act="u-del" data-id="${esc(u.id)}">Remover</button>`:''}</div>`:''}</div>`};
+      <div class="actions">${envioHTML(u,c)}<button class="btn sm" data-act="u-copy" data-c="${esc(c.codigo||'')}">Copiar código</button>${pode?`<button class="btn sm" data-act="u-cod" data-id="${esc(u.id)}">Gerar novo código</button>`:''}${(own&&u.tipo!=='admin')||(adm&&!['admin','gestor'].includes(u.tipo))?`<button class="btn sm danger" data-act="u-del" data-id="${esc(u.id)}">Remover</button>`:''}</div>`:''}</div>`};
   const g=(t,l)=>l.length?`<span class="mgrp">${t}</span>${l.map(linha).join('')}`:'';
   const vis=adm?S.users:S.users.filter(meus);
   return `<datalist id="dlAreas">${AREAS.map(a=>`<option value="${esc(a)}">`).join('')}</datalist><form class="form box" data-form="user"><span class="sec-t">Adicionar usuário</span>
       <div class="grid2"><label>Nome<input name="nome" required maxlength="80"></label><label>Perfil<select name="tipo" id="nuTipo">${perfis.map(([k,t])=>`<option value="${k}">${t}</option>`).join('')}</select></label></div>
       <div class="grid2"><label>Celular ou e-mail<input name="contato" maxlength="120" placeholder="(71) 99999-0000 ou nome@empresa.com"></label><label>Agente (se externo)<select name="agente"><option value="">—</option>${ags.map(a=>`<option value="${esc(a.id)}">${esc(a.sigla||a.nome)}</option>`).join('')}</select></label></div>
       <label>Área (se Neoenergia)<input name="area" list="dlAreas" maxlength="60" placeholder="ex.: Proteção"></label>
-      <p class="hint">O código de acesso é gerado na hora. A pessoa só vê os projetos de acesso em que for indicada.${adm?' O responsável de projeto inclui usuários, indica participantes e o aprovador da PEX e desbloqueia a tramitação nos acessos em que participa.':' Você vê aqui os usuários que cadastrou.'}</p>
+      <p class="hint">O código de acesso é gerado na hora. A pessoa só vê os projetos de acesso em que for indicada.${adm?' O que o responsável de projeto pode fazer se marca no cartão dele, em "Permissões" (até as mesmas do administrador).':' Você vê aqui os usuários que cadastrou.'}</p>
       <p class="ferr"></p><div><button class="btn primary" type="submit">Adicionar</button></div></form>
     ${g('Administrador',vis.filter(u=>u.tipo==='admin'))}${g('Responsáveis de projeto',vis.filter(u=>u.tipo==='gestor'))}${g('Internos',vis.filter(u=>u.tipo==='interno'))}${g('Externos',vis.filter(u=>u.tipo==='externo'))}`}})}
 
@@ -995,7 +1018,7 @@ function agForm(a){a=a||{};pushSheet({title:a.id?'Editar agente':'Novo agente',r
   <div class="grid2"><label>Sigla<input name="sigla" maxlength="30" value="${esc(a.sigla||'')}"></label><label>Tipo<select name="tipo">${Object.entries(AGT).map(([k,v])=>`<option value="${k}"${a.tipo===k?' selected':''}>${v}</option>`).join('')}</select></label></div>
   <div class="grid2"><label>CNPJ<input name="cnpj" maxlength="20" value="${esc(a.cnpj||'')}" inputmode="numeric"></label><label>Responsável / contato<input name="resp" maxlength="120" value="${esc(a.resp||'')}"></label></div>
   <p class="ferr"></p><div class="actions"><button class="btn primary" type="submit">Salvar</button></div>
-  ${a.id?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="ag-del" data-id="${esc(a.id)}">Excluir agente</button><span>Só é possível excluir se nenhum acesso usar este agente.</span></div>`:''}</form>`})}
+  ${a.id&&R.pode('excluir')?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="ag-del" data-id="${esc(a.id)}">Excluir agente</button><span>Só é possível excluir se nenhum acesso usar este agente.</span></div>`:''}</form>`})}
 
 /* ---- subestações ---- */
 function openSEs(){pushSheet({title:'Subestações',live:true,render:()=>`<div class="actions"><button class="btn primary" data-act="se-new">Nova subestação</button></div>
@@ -1006,11 +1029,11 @@ function seForm(s){s=s||{};pushSheet({title:s.id?'Editar subestação':'Nova sub
   <label>Tensões (kV)<input name="tensoes" maxlength="40" value="${esc(s.tensoes||'')}" placeholder="500/230/69"></label>
   <p class="hint">A regional e a sigla entram no número da PEX: PEX-{REG}-SE-{SIGLA}-0001.</p>
   <p class="ferr"></p><div class="actions"><button class="btn primary" type="submit">Salvar</button></div>
-  ${s.id?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="se-del" data-id="${esc(s.id)}">Excluir subestação</button><span>Só é possível excluir se nenhum acesso usar esta subestação.</span></div>`:''}</form>`})}
+  ${s.id&&R.pode('excluir')?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="se-del" data-id="${esc(s.id)}">Excluir subestação</button><span>Só é possível excluir se nenhum acesso usar esta subestação.</span></div>`:''}</form>`})}
 
 /* ---- projetos de acesso ---- */
-function openAcessos(){pushSheet({title:'Projetos de acesso',live:true,render:()=>`${R.owner()?`<div class="actions"><button class="btn primary" data-act="ac-new">Novo projeto de acesso</button></div>`:''}
-  ${S.acessos.length?`<div class="pcards">${S.acessos.filter(a=>R.gestorDe(a)).map(a=>{const n=partIds(a).length;return `<button class="pcard nt" data-act="${R.owner()?'ac-edit':'ac-part'}" data-id="${esc(a.id)}"><span style="min-width:0"><span class="pt">${esc(acNome(a))}</span><span class="crumb">${esc((acSE(a)?.sigla||acSE(a)?.nome||'SE?')+' · '+(acAgente(a)?.sigla||acAgente(a)?.nome||'agente?'))}</span></span><span class="chip tipo">${n} part.</span></button>`}).join('')}</div>`:'<p class="hint">Nenhum projeto de acesso cadastrado.</p>'}`})}
+function openAcessos(){pushSheet({title:'Projetos de acesso',live:true,render:()=>`${R.pode('criar_acessos')?`<div class="actions"><button class="btn primary" data-act="ac-new">Novo projeto de acesso</button></div>`:''}
+  ${S.acessos.length?`<div class="pcards">${S.acessos.filter(a=>R.respDe(a)&&(R.pode('participantes')||R.pode('editar_acessos'))).map(a=>{const n=partIds(a).length;return `<button class="pcard nt" data-act="${R.pode('editar_acessos')?'ac-edit':'ac-part'}" data-id="${esc(a.id)}"><span style="min-width:0"><span class="pt">${esc(acNome(a))}</span><span class="crumb">${esc((acSE(a)?.sigla||acSE(a)?.nome||'SE?')+' · '+(acAgente(a)?.sigla||acAgente(a)?.nome||'agente?'))}</span></span><span class="chip tipo">${n} part.</span></button>`}).join('')}</div>`:'<p class="hint">Nenhum projeto de acesso cadastrado.</p>'}`})}
 function acForm(a){a=a||{};
   if(!S.ses.length||!S.agentes.length){toast(!S.ses.length?'Cadastre primeiro a subestação.':'Cadastre primeiro o agente acessante.');return (!S.ses.length?seForm:agForm)()}
   pushSheet({title:a.id?'Editar projeto de acesso':'Novo projeto de acesso',render:()=>`<form class="form" data-form="ac" data-id="${esc(a.id||'')}">
@@ -1023,7 +1046,7 @@ function acForm(a){a=a||{};
   <label>Palavras-chave dos e-mails<input name="chaves" maxlength="300" value="${esc((a.chaves||[]).join('; '))}" placeholder="ex.: Sol Nascente; CUST 014"></label>
   <p class="hint">Separe por ponto e vírgula. Os e-mails com a caixa da gestão de acesso em cópia que tiverem o código ou uma destas palavras no assunto entram neste acesso.</p>
   <p class="ferr"></p><div class="actions"><button class="btn primary" type="submit">Salvar</button>${a.id?`<button class="btn" type="button" data-act="ac-part" data-id="${esc(a.id)}">Participantes</button>`:''}</div>
-  ${a.id?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="ac-del" data-id="${esc(a.id)}">Excluir projeto de acesso</button><span>Os participantes deixam de ver este acesso.</span></div>`:''}</form>`})}
+  ${a.id&&R.pode('excluir')?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="ac-del" data-id="${esc(a.id)}">Excluir projeto de acesso</button><span>Os participantes deixam de ver este acesso.</span></div>`:''}</form>`})}
 function acPart(id){pushSheet({title:'Participantes',live:true,render:()=>{
   const a=acById(id);if(!a)return '<p class="hint">Acesso não encontrado.</p>';
   const p=a.part||{};
@@ -1074,6 +1097,8 @@ document.addEventListener('change',e=>{const t=e.target;if(!t)return;
   if(t.dataset.utipo){const ch={tipo:t.value};if(t.value!=='externo')ch.agente='';dbDo(()=>S.db.doc('usuarios/'+t.dataset.utipo).update(ch),'Perfil atualizado');return}
   if(t.dataset.uag!=null){dbDo(()=>S.db.doc('usuarios/'+t.dataset.uag).update({agente:t.value}),'Agente atualizado');return}
   if(t.dataset.ucont!=null){dbDo(()=>S.db.doc('contatos/'+t.dataset.ucont).update({contato:t.value.trim()}),'Contato atualizado');return}
+  if(t.dataset.perm){const [uid,p]=t.dataset.perm.split('|'),u=usuarioById(uid);if(!u)return;const pm={};PERMS.forEach(([k])=>{pm[k]=permDe(u,k)});
+    if(p==='*')PERMS.forEach(([k])=>{pm[k]=t.checked});else pm[p]=t.checked;dbDo(()=>S.db.doc('usuarios/'+uid).update({perm:pm}),'Permissões atualizadas');return}
   if(t.dataset.ab){const [p,v]=t.dataset.ab.split('|'),l=S.abDraft[p];if(t.checked){if(!l.includes(v))l.push(v)}else S.abDraft[p]=l.filter(x=>x!==v);return}
   if(t.dataset.uarea!=null){dbDo(()=>S.db.doc('usuarios/'+t.dataset.uarea).update({area:t.value.trim()}),'Área atualizada');return}
   if(t.dataset.ufun!=null){dbDo(()=>S.db.doc('usuarios/'+t.dataset.ufun).update({funcao:t.value.trim()}),'Função atualizada');return}
@@ -1112,7 +1137,7 @@ document.addEventListener('submit',async e=>{const f=e.target;if(!f||!f.dataset|
       if(!v('se')||!v('agente'))throw erro('Escolha a subestação e o agente acessante.');
       const cd=v('codigo');if(cd&&S.acessos.some(a=>a.id!==id&&nrm(a.codigo)===nrm(cd)))throw erro('Já existe acesso com este código.');
       const dados={...p,codigo:cd,nome:v('nome'),status:v('status')||'andamento',se:v('se'),agente:v('agente'),inicio:v('inicio'),previsao:v('previsao'),descricao:v('descricao'),
-        chaves:v('chaves').split(/[;\n]+/).map(x=>x.trim()).filter(x=>x.length>=3),part:prev.part||{},criadoEm:prev.criadoEm||Date.now(),por:prev.por||S.me.id};
+        chaves:v('chaves').split(/[;\n]+/).map(x=>x.trim()).filter(x=>x.length>=3),part:prev.part||(R.owner()?{}:{[S.me.id]:{em:Date.now(),por:S.me.id}}),criadoEm:prev.criadoEm||Date.now(),por:prev.por||S.me.id};
       await S.db.doc('acessos/'+id).set(dados);
       backSheet();toast(f.dataset.id?'Acesso salvo':'Acesso criado. Agora indique os participantes.');if(!f.dataset.id)acPart(id);
     }
@@ -1164,7 +1189,7 @@ function renderFluxo(m,k){
     <div class="filters"><div class="seg" role="group" aria-label="Situação">${segs.map(([v,t])=>`<button data-act="ff-st" data-k="${k}" data-v="${v}" aria-pressed="${F.st===v}">${t}</button>`).join('')}</div>
       ${discs.length>1?`<select class="sel" id="ffDisc" data-k="${k}" aria-label="Disciplina"><option value="">Todas as disciplinas</option>${discs.map(x=>`<option${F.disc===x?' selected':''}>${esc(x)}</option>`).join('')}</select>`:''}
       <input class="search" id="ffQ" data-k="${k}" type="search" placeholder="Buscar número, título ou revisão" value="${esc(F.q)}"></div>
-    ${R.canAct()?`<div class="actions" style="justify-content:flex-start"><button class="btn primary" data-act="fx-novo" data-k="${k}">${K.novo}</button><button class="btn" data-act="fx-imp" data-k="${k}">Importar lista</button>${R.owner()?`<button class="btn" data-act="adm-prazos">Prazos</button>`:''}</div>`:''}
+    ${R.canAct()?`<div class="actions" style="justify-content:flex-start"><button class="btn primary" data-act="fx-novo" data-k="${k}">${K.novo}</button><button class="btn" data-act="fx-imp" data-k="${k}">Importar lista</button>${R.pode('config')?`<button class="btn" data-act="adm-prazos">Prazos</button>`:''}</div>`:''}
     <section class="panel">${l.length?`<div class="rows">${l.map(d=>`<button class="row fxrow" data-act="fx-open" data-k="${k}" data-id="${esc(d.id)}">
         <span style="min-width:0"><span class="row-t">${esc(d.num||'s/ nº')} · ${esc(d.titulo||'')}</span><span class="row-l">${esc([d.disc,d.rev!=null&&d.rev!==''?'rev. '+d.rev:'',comTxt(d)].filter(Boolean).join(' · '))}</span></span>
         <span class="row-meta">${stChip(d)}${tramLigada(k)&&R.interno()&&tramCom(d)?`<span class="chip ${tramCom(d)===S.me.id?'s-aprovado':'s-validacao'}">com ${esc(nameOf(tramCom(d)).split(' ')[0])} · ${durTxt(Date.now()-((tramDe(d)||{}).desde||Date.now()))}</span>`:''}<span class="row-d">${esc(prazoTxt(d))}</span></span></button>`).join('')}</div>`
@@ -1188,7 +1213,7 @@ async function fxNovo(k,ed){
     ${ed?'':`<div class="grid2"><label>Revisão<input name="rev" maxlength="10" value="0"></label><label>Situação inicial<select name="st"><option value="aguardando">Aguardando envio</option><option value="enviado">Já enviado nesta revisão</option></select></label></div>
       ${pickArq('fxArq','Anexar o arquivo enviado (opcional)',true)}`}
     <p class="ferr"></p><div class="actions"><button class="btn primary" type="submit">Salvar</button></div>
-    ${ed&&(R.owner()||(ed.por===S.me.id&&ed.status==='aguardando'))?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="fx-del" data-k="${k}" data-id="${esc(ed.id)}">Excluir</button><span>Só o administrador, ou quem cadastrou enquanto ainda não foi enviado.</span></div>`:''}</form>`});
+    ${ed&&(R.pode('excluir')||(ed.por===S.me.id&&ed.status==='aguardando'))?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="fx-del" data-k="${k}" data-id="${esc(ed.id)}">Excluir</button><span>Só o administrador, ou quem cadastrou enquanto ainda não foi enviado.</span></div>`:''}</form>`});
 }
 /* ---- detalhe e ações ---- */
 function fxOpen(k,id){const K=FX[k];pushSheet({title:()=>{const d=(S[K.key]||[]).find(x=>x.id===id);return d?(d.num||K.nome):K.nome},live:true,render:()=>{
@@ -1401,7 +1426,7 @@ RENDER.si=m=>{
     ${acHead(ac,'SI / SIAE',[{v:n(filt.abertas),l:'abertas'},{v:n(filt.semana),l:'próximos 7 dias'},{v:n(siAtrasada),l:'atrasadas',c:n(siAtrasada)?'alta':''},{v:n(x=>x.status==='executada'),l:'executadas',c:'ok'}])}
     <div class="filters"><div class="seg" role="group" aria-label="Situação">${[['abertas','Abertas'],['semana','Próximos 7 dias'],['atrasadas','Atrasadas'],['todas','Todas']].map(([v,t])=>`<button data-act="si-st" data-v="${v}" aria-pressed="${F.st===v}">${t}</button>`).join('')}</div>
       <input class="search" id="siQ" type="search" placeholder="Buscar SIAE, SGI, equipamento ou FT" value="${esc(F.q)}"></div>
-    ${R.canAct()?`<div class="actions" style="justify-content:flex-start"><button class="btn primary" data-act="si-nova">Solicitar SI</button>${R.owner()?`<button class="btn" data-act="si-papeis">Quem cadastra SI no SGI</button>`:''}</div>`:''}
+    ${R.canAct()?`<div class="actions" style="justify-content:flex-start"><button class="btn primary" data-act="si-nova">Solicitar SI</button>${R.pode('usuarios_todos')?`<button class="btn" data-act="si-papeis">Quem cadastra SI no SGI</button>`:''}</div>`:''}
     <section class="panel">${l.length?`<div class="rows">${l.map(x=>`<button class="row fxrow" data-act="si-open" data-id="${esc(x.id)}"><span style="min-width:0"><span class="row-t">${esc(x.num)}${x.sgi?' · SGI '+esc(x.sgi):''} · ${esc(x.eqp||'')}</span><span class="row-l">${esc(ftNomes(x)||'—')} · ${esc(dtTxt(x.ini))} → ${esc(dtTxt(x.fim))}</span></span>
       <span class="row-meta"><span class="chip ${SI_CHIP[x.status]||'tipo'}">${esc(SIST[x.status]||x.status)}</span>${siAtrasada(x)?'<span class="chip s-vencida">atrasada</span>':''}${(x.anexos||[]).length?`<span class="chip tipo">${x.anexos.length} anexo${x.anexos.length>1?'s':''}</span>`:''}</span></button>`).join('')}</div>`
       :`<div class="panel-b"><p class="muted" style="margin:0">${all.length?'Nada nesta seleção.':'Nenhuma SI neste acesso.'}</p></div>`}</section></div>`;
@@ -1496,7 +1521,7 @@ const supDe=ft=>(S.energ||[]).find(x=>x.tipo==='sup'&&x.ft===ft.id)||null;
 const supEtapas=()=>{const l=cfgApp().supEt;return ETS.filter(([k])=>!l||l.includes(k))};
 function ftBloco(ac,titulo,corpo){const fts=ftsDoAc(ac);
   return `${acHead(ac,titulo,[{v:fts.length,l:'FTs'}])}
-  ${R.interno()?`<div class="actions" style="justify-content:flex-start"><button class="btn" data-act="ft-novo">Cadastrar FT</button>${R.owner()&&titulo==='Supervisão'?`<button class="btn" data-act="sup-cfg">Etapas da supervisão</button>`:''}</div>`:''}
+  ${R.interno()?`<div class="actions" style="justify-content:flex-start"><button class="btn" data-act="ft-novo">Cadastrar FT</button>${R.pode('config')&&titulo==='Supervisão'?`<button class="btn" data-act="sup-cfg">Etapas da supervisão</button>`:''}</div>`:''}
   ${fts.length?`<div class="ocards">${fts.map(corpo).join('')}</div>`:`<section class="panel"><div class="panel-b empty-st"><h2>Nenhuma FT cadastrada</h2><p class="muted" style="margin:0">Cadastre as funções de transmissão do acesso (ex.: EL 138 kV, módulo de conexão), dizendo se são da Neoenergia ou do acessante. Elas aparecem também na solicitação de SI.</p></div></section>`}`}
 RENDER.spcs=m=>{const ac=acGate(m,'o SPCS');if(!ac)return;
   m.innerHTML=`<div class="view">${accessBanner()}${ftBloco(ac,'SPCS — testes de proteção',ft=>{const t=testesFT(ft)[0];
@@ -1513,7 +1538,7 @@ function ftForm(ed){const ac=effAC();if(!ac)return;pushSheet({title:ed?'Editar F
   <div class="grid2"><label>Tensão (kV)<input name="kv" maxlength="10" value="${esc(ed?.kv||'')}" inputmode="decimal"></label><label>De quem é<select name="dono">${Object.entries(DONO).map(([k,v])=>`<option value="${k}"${(ed?.dono||'acessado')===k?' selected':''}>${v}</option>`).join('')}</select></label></div>
   <label>Código operacional<input name="cod" maxlength="40" value="${esc(ed?.cod||'')}"></label>
   <p class="ferr"></p><div class="actions"><button class="btn primary" type="submit">Salvar</button></div>
-  ${ed&&R.owner()?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="ft-del" data-id="${esc(ed.id)}">Excluir FT</button></div>`:''}</form>`})}
+  ${ed&&R.pode('excluir')?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="ft-del" data-id="${esc(ed.id)}">Excluir FT</button></div>`:''}</form>`})}
 function ttNovo(ftId){const ft=(S.energ||[]).find(x=>x.id===ftId);if(!ft)return;pushSheet({title:'Registrar teste da FT',render:()=>`<form class="form" data-form="tt" data-ft="${esc(ftId)}"><span class="crumb">${esc(ft.nome)}</span>
   <div class="grid2"><label>Data do teste<input type="date" name="data" required value="${todayISO()}"></label><label>Situação<select name="st"><option value="andamento">Em andamento</option><option value="aguardando">Concluído — enviar para aprovação</option></select></label></div>
   <div class="grid2"><label>Executante<input name="exec" maxlength="80"></label><label>Empresa<input name="emp" maxlength="80"></label></div>
@@ -1588,14 +1613,14 @@ function semPanel(ac){const s=semDe(ac);
 RENDER.semaforo=m=>{const ac=acGate(m,'o semáforo');if(!ac)return;
   m.innerHTML=`<div class="view">${accessBanner()}${acHead(ac,'Semáforo de liberação')}
     <p class="hint">Cada etapa acende pela situação dos registros do acesso: verde concluída, amarelo em andamento, vermelho com prazo vencido ou reprovação aberta, cinza não iniciada. O farol do acesso é a pior etapa.</p>
-    ${R.owner()?`<div class="actions" style="justify-content:flex-start"><button class="btn" data-act="sem-cfg">Editar etapas do semáforo</button></div>`:''}${semPanel(ac)}</div>`};
+    ${R.pode('config')?`<div class="actions" style="justify-content:flex-start"><button class="btn" data-act="sem-cfg">Editar etapas do semáforo</button></div>`:''}${semPanel(ac)}</div>`};
 RENDER.painel=m=>{
   if(!S.acessos.length){acGate(m,'');return}
   const ets=semEtapas().filter(e=>e.on!==false),acs=S.acessos.filter(a=>a.status!=='concluido'||S.fpn);
   const tudo=k=>(S[FX[k].key]||[]),docs=[...tudo('projetos'),...tudo('pex')].filter(d=>acById(d.ac));
   const em7=somaDias(Date.now(),7,false),sem7=(S.sis||[]).filter(x=>acById(x.ac)&&!SI_FIM.has(x.status)&&x.ini&&x.ini.slice(0,10)<=em7&&(x.fim||x.ini).slice(0,10)>=todayISO());
   const atN=docs.filter(d=>docAtrasado(d)&&DST_COM[d.status]==='neo'),atA=docs.filter(d=>docAtrasado(d)&&DST_COM[d.status]==='acessante');
-  m.innerHTML=`<div class="view">${accessBanner()}<div class="uhead"><div><span class="eyebrow">${R.owner()?'Todos os acessos':'Acessos em que você participa'}</span><h1>Painel</h1></div></div>
+  m.innerHTML=`<div class="view">${accessBanner()}<div class="uhead"><div><span class="eyebrow">${R.todos()?'Todos os acessos':'Acessos em que você participa'}</span><h1>Painel</h1></div></div>
     <div class="kpis"><div class="kpi"><b>${docs.filter(d=>DST_COM[d.status]==='neo').length}</b><small>documentos e PEX com a Neoenergia</small></div><div class="kpi k-alta"><b>${atN.length}</b><small>atrasados na Neoenergia</small></div><div class="kpi k-alta"><b>${atA.length}</b><small>atrasados no acessante</small></div><div class="kpi"><b>${sem7.length}</b><small>SIs nos próximos 7 dias</small></div></div>
     <section class="panel"><div class="panel-h"><h2>Semáforo por acesso</h2><label class="chkl" style="font-size:14px"><input type="checkbox" id="pnConc"${S.fpn?' checked':''}> mostrar concluídos</label></div><div class="tscroll"><table class="sem-tab"><tr><th>Acesso</th><th class="c">Geral</th>${ets.map(e=>`<th class="c">${esc(e.nome)}</th>`).join('')}</tr>
       ${acs.map(a=>{const s=semDe(a);return `<tr><td><button class="lnk" data-act="ac-open" data-v="acessos" data-id="${esc(a.id)}">${esc(acCurto(a))}</button><span class="crumb" style="display:block">${esc(a.nome||'')}</span></td><td class="c">${semDot(s.geral)}</td>${s.its.map(i=>`<td class="c" title="${esc(i.e.nome+': '+i.x)}">${semDot(i.c)}</td>`).join('')}</tr>`}).join('')}</table></div></section>
@@ -1771,7 +1796,7 @@ RENDER.reunioes=m=>{
   const venc=acs.filter(x=>x.prazo&&x.prazo<todayISO()).length;
   const l=rs.filter(r=>!F.st||r.status===F.st).filter(r=>!q||abNorm([r.assunto,r.tratado,r.local,(r.part||[]).map(p=>p.nome).join(' '),acCurto(acById(r.ac))].join(' ')).includes(q));
   const head=ac?acHead(ac,'Reuniões',[{v:rs.length,l:'reuniões'},{v:acs.length,l:'ações em aberto'},{v:venc,l:'ações vencidas',c:venc?'alta':''}])
-    :`<div class="uhead"><div><span class="eyebrow">Todos os acessos${R.owner()?'':' em que você participa'}</span><h1>Reuniões</h1></div><div class="stats"><div class="stat"><b>${rs.length}</b><span>reuniões</span></div><div class="stat"><b>${acs.length}</b><span>ações em aberto</span></div><div class="stat${venc?' alta':''}"><b>${venc}</b><span>ações vencidas</span></div></div></div>`;
+    :`<div class="uhead"><div><span class="eyebrow">Todos os acessos${R.todos()?'':' em que você participa'}</span><h1>Reuniões</h1></div><div class="stats"><div class="stat"><b>${rs.length}</b><span>reuniões</span></div><div class="stat"><b>${acs.length}</b><span>ações em aberto</span></div><div class="stat${venc?' alta':''}"><b>${venc}</b><span>ações vencidas</span></div></div></div>`;
   m.innerHTML=`<div class="view">${accessBanner()}${head}
     <div class="filters"><div class="seg big" role="group" aria-label="Seção">${[['reunioes','Reuniões'],['acoes','Ações em aberto']].map(([k,t])=>`<button data-act="rn-aba" data-v="${k}" aria-pressed="${F.aba===k}">${t}</button>`).join('')}</div>
       ${F.aba==='reunioes'?`<div class="seg" role="group" aria-label="Situação">${[['','Todas'],['rascunho','Rascunho'],['emitida','Ata emitida']].map(([k,t])=>`<button data-act="rn-st" data-v="${k}" aria-pressed="${F.st===k}">${t}</button>`).join('')}</div><input class="search" id="rnQ" type="search" placeholder="Buscar assunto, participante ou acesso" value="${esc(F.q)}">`:''}</div>
@@ -1895,16 +1920,16 @@ const emQuando=e=>e.data?new Date(e.data).getTime():(e.em||0);
 const nomeDe=s=>{s=String(s||'');const m=s.match(/^\s*"?([^"<]+?)"?\s*</);return m?m[1].trim():s.replace(/[<>]/g,'').trim()};
 RENDER.emails=m=>{
   if(!R.interno()){m.innerHTML=`<div class="view">${accessBanner()}<section class="panel"><div class="panel-b empty-st"><h2>E-mails</h2><p class="muted" style="margin:0">Os e-mails importantes são vistos só pela Neoenergia.</p></div></section></div>`;return}
-  if(!S.acessos.length&&!R.owner()){acGate(m,'');return}
-  const ac=acById(S.acId)||(!R.owner()&&S.acessos.length===1?S.acessos[0]:null),F=S.fem,q=abNorm(F.q),d7=Date.now()-7*864e5;
+  if(!S.acessos.length&&!R.todos()){acGate(m,'');return}
+  const ac=acById(S.acId)||(!R.todos()&&S.acessos.length===1?S.acessos[0]:null),F=S.fem,q=abNorm(F.q),d7=Date.now()-7*864e5;
   const base=emails().filter(e=>!ac||e.ac===ac.id),semAc=emails().filter(e=>!e.ac);
   const l=(F.st==='sem'?semAc:base).filter(e=>!q||abNorm([e.assunto,e.de,e.para,e.cc,e.resumo,acCurto(acById(e.ac))].join(' ')).includes(q)).sort((a,b)=>emQuando(b)-emQuando(a));
-  const stats=[{v:base.length,l:'e-mails'},{v:base.filter(e=>emQuando(e)>d7).length,l:'últimos 7 dias'},...(R.owner()?[{v:semAc.length,l:'sem acesso',c:semAc.length?'alta':''}]:[])];
+  const stats=[{v:base.length,l:'e-mails'},{v:base.filter(e=>emQuando(e)>d7).length,l:'últimos 7 dias'},...(R.todos()?[{v:semAc.length,l:'sem acesso',c:semAc.length?'alta':''}]:[])];
   m.innerHTML=`<div class="view">${accessBanner()}
     ${ac?acHead(ac,'E-mails importantes',stats):`<div class="uhead"><div><span class="eyebrow">Caixa de gestão de acesso em cópia</span><h1>E-mails importantes</h1></div><div class="stats">${stats.map(s=>`<div class="stat${s.c?' '+s.c:''}"><b>${s.v}</b><span>${esc(s.l)}</span></div>`).join('')}</div></div>`}
-    <div class="filters">${R.owner()?`<div class="seg" role="group" aria-label="Seleção"><button data-act="em-st" data-v="todos" aria-pressed="${F.st==='todos'}">${ac?'Deste acesso':'Todos'}</button><button data-act="em-st" data-v="sem" aria-pressed="${F.st==='sem'}">Sem acesso (${semAc.length})</button></div>`:''}
+    <div class="filters">${R.todos()?`<div class="seg" role="group" aria-label="Seleção"><button data-act="em-st" data-v="todos" aria-pressed="${F.st==='todos'}">${ac?'Deste acesso':'Todos'}</button><button data-act="em-st" data-v="sem" aria-pressed="${F.st==='sem'}">Sem acesso (${semAc.length})</button></div>`:''}
       <input class="search" id="emQ" type="search" placeholder="Buscar assunto, remetente ou texto" value="${esc(F.q)}"></div>
-    <div class="actions"><button class="btn primary" data-act="em-imp">Importar e-mail (.eml)</button>${R.owner()?`<button class="btn" data-act="em-script">Script do Gmail</button>`:''}</div>
+    <div class="actions"><button class="btn primary" data-act="em-imp">Importar e-mail (.eml)</button>${R.pode('config')?`<button class="btn" data-act="em-script">Script do Gmail</button>`:''}</div>
     <section class="panel">${l.length?`<div class="rows">${l.map(e=>`<button class="row fxrow" data-act="em-open" data-id="${esc(e.id)}"><span style="min-width:0"><span class="row-t">${esc(e.assunto||'(sem assunto)')}</span><span class="row-l">${esc(nomeDe(e.de))} · ${fmtDH(emQuando(e))}${ac?'':' · '+(e.ac?esc(acCurto(acById(e.ac))):'sem acesso')}</span></span>
       <span class="row-meta">${e.ac?'':'<span class="chip c-media">sem acesso</span>'}${(e.anexos||[]).length?`<span class="chip tipo">${e.anexos.length} anexo(s)</span>`:''}${e.origem==='gmail'?'<span class="chip tipo">Gmail</span>':''}</span></button>`).join('')}</div>`
       :`<div class="panel-b"><p class="muted" style="margin:0">${F.st==='sem'?'Nenhum e-mail sem acesso.':'Nenhum e-mail registrado. Instale o script do Gmail (administrador) ou importe um .eml.'}</p></div>`}</section></div>`};
@@ -1913,9 +1938,9 @@ function emOpen(id){pushSheet({title:'E-mail',live:true,render:()=>{const e=(S.e
     <dl class="dl"><dt>Data</dt><dd>${fmtDH(emQuando(e))}</dd><dt>De</dt><dd>${esc(e.de||'—')}</dd><dt>Para</dt><dd>${esc(e.para||'—')}</dd><dt>Cópia</dt><dd>${esc(e.cc||'—')}</dd>
       <dt>Anexos</dt><dd>${(e.anexos||[]).length?e.anexos.map(esc).join('<br>')+'<br><span class="muted">(não guardados)</span>':'nenhum'}</dd><dt>Registro</dt><dd>${e.origem==='gmail'?'Script do Gmail':'Importado por '+esc(nameOf(e.por))} · ${fmtDH(e.em)}</dd></dl>
     <div class="actions">${e.pdf?`<a class="btn primary" href="${fileView(e.pdf)}" target="_blank" rel="noopener">Abrir o PDF do resumo</a>`:''}${e.link?`<a class="btn" href="${esc(e.link)}" target="_blank" rel="noopener">Abrir no Gmail</a>`:''}</div>
-    ${R.owner()?`<form class="form box" data-form="em-ac" data-id="${esc(e.id)}"><span class="sec-t">Projeto de acesso</span><div class="grid2"><select name="ac" class="sel"><option value="">— sem acesso —</option>${S.acessos.map(a=>`<option value="${esc(a.id)}"${e.ac===a.id?' selected':''}>${esc(acNome(a))}</option>`).join('')}</select><button class="btn" type="submit">Mover</button></div><p class="ferr"></p></form>`:''}
+    ${R.todos()?`<form class="form box" data-form="em-ac" data-id="${esc(e.id)}"><span class="sec-t">Projeto de acesso</span><div class="grid2"><select name="ac" class="sel"><option value="">— sem acesso —</option>${S.acessos.map(a=>`<option value="${esc(a.id)}"${e.ac===a.id?' selected':''}>${esc(acNome(a))}</option>`).join('')}</select><button class="btn" type="submit">Mover</button></div><p class="ferr"></p></form>`:''}
     <div class="box"><h4>Resumo</h4><p class="em-corpo">${esc(e.resumo||'(sem texto)')}</p></div>
-    ${R.owner()?`<div class="dangerzone"><button class="btn sm danger" data-act="em-del" data-id="${esc(e.id)}">Excluir registro</button></div>`:''}`}})}
+    ${R.pode('excluir')?`<div class="dangerzone"><button class="btn sm danger" data-act="em-del" data-id="${esc(e.id)}">Excluir registro</button></div>`:''}`}})}
 /* ---- .eml: cabeçalho, texto (quoted-printable/base64, utf-8/latin-1) e nomes dos anexos ---- */
 function decPalavras(s){return String(s||'').replace(/=\?([^?]+)\?([bBqQ])\?([^?]*)\?=(\s+(?==\?))?/g,(m,cs,enc,t)=>{try{let b;if(/b/i.test(enc))b=Uint8Array.from(atob(t),c=>c.charCodeAt(0));else{const x=t.replace(/_/g,' ').replace(/=([0-9A-F]{2})/gi,(a,h)=>String.fromCharCode(parseInt(h,16)));b=Uint8Array.from(x,c=>c.charCodeAt(0))}return new TextDecoder(cs.toLowerCase()).decode(b)}catch(e){return t}})}
 function emlPartes(raw){const i=raw.search(/\r?\n\r?\n/);const hTxt=i<0?raw:raw.slice(0,i),corpo=i<0?'':raw.slice(i).replace(/^\r?\n\r?\n/,'');
@@ -1938,11 +1963,11 @@ function emPDF(e){const D=pdfDoc('Resumo de e-mail',e.assunto.slice(0,90));pdfSe
 const hashId=s=>{let h=5381;for(const c of String(s))h=((h*33)^c.charCodeAt(0))>>>0;return h.toString(36)};
 function emImp(){const ac=acById(S.acId)||(S.acessos.length===1?S.acessos[0]:null);pushSheet({title:'Importar e-mail',render:()=>`<form class="form" data-form="em-imp">
   <p class="hint" style="margin:0">No Gmail: abra o e-mail → ⋮ → <b>Fazer o download da mensagem</b> (.eml). No Outlook: arraste o e-mail para a área de trabalho ou use <b>Salvar como</b> e escolha .eml. O SIGA guarda só o resumo em PDF, sem os anexos.</p>
-  <label>Projeto de acesso<select name="ac"${R.owner()?'':' required'}><option value="">${R.owner()?'— sem acesso —':'— escolha —'}</option>${S.acessos.map(a=>`<option value="${esc(a.id)}"${ac&&ac.id===a.id?' selected':''}>${esc(acNome(a))}</option>`).join('')}</select></label>
+  <label>Projeto de acesso<select name="ac"${R.todos()?'':' required'}><option value="">${R.todos()?'— sem acesso —':'— escolha —'}</option>${S.acessos.map(a=>`<option value="${esc(a.id)}"${ac&&ac.id===a.id?' selected':''}>${esc(acNome(a))}</option>`).join('')}</select></label>
   ${pickArq('emArq','Escolher e-mail(s) .eml',true,'.eml,message/rfc822')}
   <p class="ferr"></p><div class="actions"><button class="btn primary" type="submit">Importar</button></div></form>`})}
 async function emImpSalva(f){const fd=new FormData(f),acId=String(fd.get('ac')||''),inp=f.querySelector('#emArq'),er=f.querySelector('.ferr'),bt=f.querySelector('button[type=submit]');er.textContent='';
-  if(!inp.files.length){er.textContent='Escolha o arquivo .eml.';return}if(!acId&&!R.owner()){er.textContent='Escolha o projeto de acesso.';return}
+  if(!inp.files.length){er.textContent='Escolha o arquivo .eml.';return}if(!acId&&!R.todos()){er.textContent='Escolha o projeto de acesso.';return}
   bt.disabled=true;let n=0,rep=0;
   try{for(const file of inp.files){if(/\.msg$/i.test(file.name))throw erro(`${file.name}: arquivo .msg do Outlook não é lido. Salve o e-mail como .eml.`);
       const buf=new Uint8Array(await file.arrayBuffer());let raw='';for(let i=0;i<buf.length;i+=8192)raw+=String.fromCharCode.apply(null,buf.subarray(i,i+8192));
@@ -2007,7 +2032,7 @@ function pdForm(ed){const ac=ed?acById(ed.ac):effAC();if(!ac)return toast('Escol
     <label>Descrição<textarea name="desc" rows="3" maxlength="3000" ${TA}>${esc(ed?.desc||'')}</textarea></label>
     ${ed?fotosHTML(ed.fotos):''}${pickFoto('pdFoto','Tirar foto')}
     <p class="ferr"></p><div class="actions"><button class="btn primary" type="submit">Salvar</button></div>
-    ${ed&&(R.owner()||(ed.por===S.me.id&&ed.status==='aberta'))?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="pd-del" data-id="${esc(ed.id)}">Excluir pendência</button></div>`:''}</form>`})}
+    ${ed&&(R.pode('excluir')||(ed.por===S.me.id&&ed.status==='aberta'))?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="pd-del" data-id="${esc(ed.id)}">Excluir pendência</button></div>`:''}</form>`})}
 function pdOpen(id){pushSheet({title:'Pendência',live:true,render:()=>{const p=(S.pends||[]).find(x=>x.id===id);if(!p)return '<p class="hint">Pendência não encontrada.</p>';
   const st=p.status,int=R.interno();
   return `<div class="det-h"><span class="crumb">${esc(acNome(acById(p.ac)))}</span><h3>${esc(p.titulo)}</h3><div class="chips"><span class="chip c-${p.prio}">${esc(PRIO[p.prio]||'')}</span><span class="chip ${PST_CHIP[st]}">${esc(PST[st])}</span>${pendVencida(p)?'<span class="chip s-vencida">vencida</span>':''}</div></div>
@@ -2065,7 +2090,7 @@ function abForm(ed){const ac=ed?acById(ed.ac):effAC();if(!ac)return toast('Escol
     <label>O que mudou em campo<textarea name="desc" rows="3" required maxlength="2000" ${TA}>${esc(ed?.desc||'')}</textarea></label>
     ${ed?fotosHTML(ed.fotos):''}${pickFoto('abFoto','Foto da folha marcada')}
     <p class="ferr"></p><div class="actions"><button class="btn primary" type="submit">Salvar</button></div>
-    ${ed&&(R.owner()||(ed.por===S.me.id&&ed.status==='pendente'))?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="ab-del" data-id="${esc(ed.id)}">Excluir</button></div>`:''}</form>`})}
+    ${ed&&(R.pode('excluir')||(ed.por===S.me.id&&ed.status==='pendente'))?`<div class="dangerzone"><button class="btn sm danger" type="button" data-act="ab-del" data-id="${esc(ed.id)}">Excluir</button></div>`:''}</form>`})}
 function abOpen(id){pushSheet({title:'Alteração de campo',live:true,render:()=>{const x=(S.asb||[]).find(a=>a.id===id);if(!x)return '<p class="hint">Não encontrada.</p>';
   return `<div class="det-h"><span class="crumb">${esc(abDocNome(x))}</span><h3>${x.folha?'Folha '+esc(x.folha):'Alteração'}</h3><div class="chips"><span class="chip ${x.status==='incorporada'?'s-aprovado':'s-validacao'}">${esc(ABST[x.status])}</span></div></div>
     <p class="desc">${esc(x.desc||'')}</p>${fotosHTML(x.fotos)}
